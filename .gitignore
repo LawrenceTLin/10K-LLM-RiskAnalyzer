@@ -1,0 +1,32 @@
+# Environment variables
+.env
+*.env
+.env.*
+
+# Python virtual environment
+venv/
+env/
+ENV/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+logs/
+
+# Data files that might contain sensitive information
+data/raw/
+data/processed/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
