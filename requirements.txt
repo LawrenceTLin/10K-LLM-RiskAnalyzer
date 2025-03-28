@@ -1,14 +1,19 @@
-sec-api==2.6.1
-unstructured==0.10.8
-python-dotenv==1.0.0
-pandas==2.0.3
-tqdm==4.66.1
-requests
-numpy<1.26.0
-pandas
-tqdm
-tenacity
-unstructured
-beautifulsoup4
-lxml
-python-magic-bin
+# Core dependencies
+requests==2.32.3                 # Added version for stability
+numpy<1.26.0,>=1.25.0           # Pinned compatible version range
+pandas==2.2.3                   # Updated to newer stable version (2.0.3 is outdated)
+tqdm==4.66.1                    # Kept your specified version
+tenacity==9.0.0                 # Added version constraint
+
+# SEC Processing
+sec-api==1.0.31                 # Corrected version (2.6.1 doesn't exist)
+beautifulsoup4==4.12.3          # Modern HTML parser version
+lxml==5.2.2                     # XML processing library
+
+# Document Processing
+unstructured==0.10.8            # Your specified version
+python-magic-bin==0.4.14        # Required for file type detection
+python-dotenv==1.0.0            # Environment variable management
+
+transformers==4.41.2          # Hugging Face models
+torch==2.3.1                  # PyTorch dependency
