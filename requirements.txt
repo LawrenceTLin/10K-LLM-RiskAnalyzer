@@ -3,3 +3,12 @@ unstructured==0.10.8
 python-dotenv==1.0.0
 pandas==2.0.3
 tqdm==4.66.1
+requests
+numpy<1.26.0
+pandas
+tqdm
+tenacity
+unstructured
+beautifulsoup4
+lxml
+python-magic-bin
