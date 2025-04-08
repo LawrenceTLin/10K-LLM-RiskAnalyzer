@@ -18,6 +18,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Union, Any, Tuple
+from bs4 import BeautifulSoup
 
 # Enhanced dependencies
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
@@ -1262,14 +1263,17 @@ def main():
     # List of companies to process
     companies = [
         {"ticker": "AAPL", "name": "Apple Inc."},
-        {"ticker": "MSFT", "name": "Microsoft Corporation"},
-        {"ticker": "GOOGL", "name": "Alphabet Inc."},
-        {"ticker": "AMZN", "name": "Amazon.com, Inc."},
-        {"ticker": "META", "name": "Meta Platforms, Inc."}
+        # {"ticker": "MSFT", "name": "Microsoft Corporation"},
+        # {"ticker": "GOOGL", "name": "Alphabet Inc."},
+        # {"ticker": "AMZN", "name": "Amazon.com, Inc."},
+        # {"ticker": "META", "name": "Meta Platforms, Inc."}
     ]
     
     # Extract just the tickers
     tickers = [company["ticker"] for company in companies]
+    
+    test_start_year = 2022 # Adjust this to limit API calls
+    test_end_year = 2023   # Adjust this to limit API calls
     
     # Run async processing with event loop
     try:
@@ -1278,7 +1282,14 @@ def main():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
     
-    results = loop.run_until_complete(process_multiple_companies(tickers, start_year=2018, max_concurrent=3))
+    results = loop.run_until_complete(
+        process_multiple_companies(
+            tickers,
+            start_year=test_start_year,
+            end_year=test_end_year,
+            max_concurrent=2 # Lower concurrency for testing if needed
+        )
+    )
     
     # Save overall results
     results_path = BASE_DIR / f"sec_risk_factors_results_{datetime.now().strftime('%Y%m%d')}.json"
