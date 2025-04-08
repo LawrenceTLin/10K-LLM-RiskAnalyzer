@@ -16,4 +16,4 @@ python-magic-bin==0.4.14        # Required for file type detection
 python-dotenv==1.0.0            # Environment variable management
 
 transformers==4.41.2          # Hugging Face models
-torch==2.3.1                  # PyTorch dependency
+torch==2.2.2                  # PyTorch dependency
