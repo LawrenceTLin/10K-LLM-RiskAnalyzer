@@ -22,7 +22,6 @@ from urllib.parse import urlparse, quote
 
 # Enhanced dependencies
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type # Still needed for throttled_request
-# from unstructured.partition.html import partition_html # REMOVED
 from tqdm import tqdm # Keep if using process_multiple_companies
 from dotenv import load_dotenv
 import asyncio
@@ -60,6 +59,9 @@ from pandera import Column, DataFrameSchema, Check, dtypes
 # --- End Data Validation ---
 
 # --- Optional NLP Enhancements ---
+os.environ["TOKENIZERS_PARALLEISM"] = "false"
+
+
 try:
     from transformers import AutoTokenizer, AutoModelForSequenceClassification
     TRANSFORMERS_AVAILABLE = True
@@ -98,7 +100,7 @@ risk_factor_schema = DataFrameSchema({
     "word_count": Column(int, Check.greater_than_or_equal_to(1)), # Allow 1 word
     "contains_risk": Column(bool),
     "contains_uncertainty": Column(bool),
-    "sentiment_score": Column(dtypes.Float32, Check.in_range(-1, 1), nullable=True),
+    "sentiment_score": Column(pda.dtypes.Float32, Check.in_range(-1, 1), nullable=True),
     "risk_keywords": Column(list, nullable=True)
 })
 
@@ -161,17 +163,45 @@ class RiskVectorizer:
 # Asynchronous SEC Interaction Class
 # =============================================================================
 class AsyncSECProcessor:
-    """Asynchronous processor for SEC interactions (API and generic fetch)."""
+    """
+    Asynchronous processor for SEC interactions (API and generic fetch).
+    Includes retries for transient errors on the Extractor API call.
+    """
     def __init__(self, api_key: Optional[str] = None, requests_per_second: int = 10):
         self.api_key = api_key
         self.limiter = AsyncLimiter(requests_per_second, 1)
         logger.info(f"Initialized AsyncSECProcessor with rate limit: {requests_per_second} req/sec.")
         if not self.api_key: logger.warning("No API key provided. Direct Extractor API calls will fail.")
 
+    # --- Helper function with retry logic ---
+    @retry(
+        wait=wait_exponential(multiplier=1, min=3, max=30), # Exponential backoff: 3s, 6s, 12s, etc. up to 30s
+        stop=stop_after_attempt(3), # Retry up to 3 times (total 4 attempts)
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError, httpx.ReadTimeout)), # Only retry these specific errors
+        before_sleep=lambda retry_state: logger.warning(f"[Extractor API Retry] Retrying request after error: {retry_state.outcome.exception()} (Attempt {retry_state.attempt_number})"), # Log before sleep
+        reraise=True # Re-raise the exception if all retries fail
+    )
+    async def _make_extractor_request_with_retry(self, client: httpx.AsyncClient, target_url: str) -> httpx.Response:
+         """Internal helper for making the GET request with retry logic."""
+         logger.debug(f"[Extractor API Retry] Attempting GET ...{target_url[-100:]}") # Log end of URL, hiding key
+         # Increase timeout slightly for potentially long extractions
+         response = await client.get(target_url, timeout=90.0)
+         # Optional: If you want to retry on specific server errors like 503 Service Unavailable
+         # if response.status_code in [503, 504]:
+         #     logger.warning(f"[Extractor API Retry] Received status {response.status_code}, triggering retry...")
+         #     response.raise_for_status() # Will raise HTTPStatusError, potentially caught by tenacity if added to retry_if_exception_type
+         return response
+    # --- End helper function ---
+
+
     async def fetch_section_via_extractor_http(self, document_url: str, item: str = "1A", return_type: str = "text") -> Optional[Dict[str, Any]]:
-        """Fetches a section using the direct HTTP GET /extractor endpoint."""
+        """
+        Fetches a specific section using the direct HTTP GET /extractor endpoint,
+        with retries for transient network errors and timeouts.
+        """
         if not self.api_key: logger.warning("[Extractor API] No API key."); return None
         if not document_url: logger.warning("[Extractor API] No document_url."); return None
+
         try:
             encoded_doc_url = quote(document_url, safe='')
             target_url = f"https://api.sec-api.io/extractor?url={encoded_doc_url}&item={item}&type={return_type}&token={self.api_key}"
@@ -179,10 +209,13 @@ class AsyncSECProcessor:
         except Exception as url_e:
             logger.error(f"[Extractor API] Error constructing URL: {url_e}"); return None
 
-        async with self.limiter:
+        async with self.limiter: # Apply rate limit before starting attempts
             try:
                 async with httpx.AsyncClient() as client:
-                    response = await client.get(target_url, timeout=60.0)
+                    # --- Call the retry helper ---
+                    response = await self._make_extractor_request_with_retry(client, target_url)
+
+                # --- Process the final response after potential retries ---
                 if response.status_code == 200:
                     content = response.text
                     if content:
@@ -190,19 +223,33 @@ class AsyncSECProcessor:
                         return {"content": content}
                     else:
                         logger.warning(f"[Extractor API] Success (200 OK) but empty content for item '{item}', URL ending: ...{document_url[-60:]}")
-                        return None
+                        return None # Treat empty success as failure for content extraction
+                # --- Handle non-200 status codes *after* retries ---
                 elif response.status_code == 404:
                     logger.warning(f"[Extractor API] Failed (404 Not Found) for item '{item}', URL ending: ...{document_url[-60:]}")
                 elif response.status_code in [401, 403]:
                     logger.error(f"[Extractor API] Failed ({response.status_code} Unauthorized/Forbidden). Check API key.")
                 elif response.status_code == 400:
                     logger.error(f"[Extractor API] Failed ({response.status_code} Bad Request). Check params. Response: {response.text[:200]}")
-                else:
+                # Log other non-transient server errors if not retried
+                elif response.status_code >= 500:
+                     logger.error(f"[Extractor API] Failed ({response.status_code} Server Error). URL ending: ...{document_url[-60:]}. Response: {response.text[:200]}")
+                else: # Other client errors (4xx)
                     logger.error(f"[Extractor API] Failed ({response.status_code}). URL ending: ...{document_url[-60:]}. Response: {response.text[:200]}")
-                return None # Return None for all non-200 responses after logging
-            except httpx.TimeoutException: logger.error(f"[Extractor API] Request timed out."); return None
-            except httpx.RequestError as e: logger.error(f"[Extractor API] Request error: {e}"); return None
-            except Exception as e: logger.error(f"[Extractor API] Unexpected error: {e}", exc_info=True); return None
+                return None # Return None for all non-200 responses
+
+            # --- Handle exceptions raised *after* exhausting retries ---
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError, httpx.ReadTimeout) as e_retry:
+                 logger.error(f"[Extractor API] Request failed after retries: {type(e_retry).__name__} - {e_retry}")
+                 return None
+            except httpx.HTTPStatusError as e_status: # Handles non-200 if _make_request raised status and tenacity reraised
+                 logger.error(f"[Extractor API] HTTP Status Error after retries: {e_status.response.status_code}")
+                 return None
+            except Exception as e:
+                # Catch any other unexpected exceptions during the process
+                logger.error(f"[Extractor API] Unexpected error during API call: {type(e).__name__} - {e}", exc_info=True)
+                return None
+
 
     async def fetch_filing(self, url: str, headers: Optional[Dict[str, str]] = None) -> Optional[str]:
         """Fetches a generic filing document (HTML)."""
