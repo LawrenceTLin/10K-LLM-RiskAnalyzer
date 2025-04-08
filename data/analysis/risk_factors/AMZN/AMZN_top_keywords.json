@@ -1,0 +1,26 @@
+{
+    "2022": {
+        "liability": 11,
+        "failure": 10,
+        "regulatory": 10,
+        "risk": 9,
+        "adverse": 7,
+        "economic": 6,
+        "competitive": 5,
+        "disruption": 3,
+        "breach": 3,
+        "litigation": 2
+    },
+    "2023": {
+        "regulatory": 13,
+        "liability": 12,
+        "failure": 11,
+        "risk": 9,
+        "adverse": 8,
+        "economic": 7,
+        "competitive": 6,
+        "breach": 3,
+        "disruption": 3,
+        "compliance": 2
+    }
+}

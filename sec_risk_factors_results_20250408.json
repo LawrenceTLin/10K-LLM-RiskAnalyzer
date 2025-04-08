@@ -1,0 +1,27 @@
+{
+    "MSFT": {
+        "ticker": "MSFT",
+        "years_processed": 2,
+        "years_successful": 2,
+        "results": [
+            {
+                "ticker": "MSFT",
+                "year": 2022,
+                "cik": "789019",
+                "status": "success",
+                "method": "api_http",
+                "sentences": 430,
+                "xbrl_compliant": true
+            },
+            {
+                "ticker": "MSFT",
+                "year": 2023,
+                "cik": "789019",
+                "status": "success",
+                "method": "api_http",
+                "sentences": 420,
+                "xbrl_compliant": true
+            }
+        ]
+    }
+}

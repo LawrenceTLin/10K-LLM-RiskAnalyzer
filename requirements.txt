@@ -1,19 +1,28 @@
 # Core dependencies
-requests==2.32.3                 # Added version for stability
-numpy<1.26.0,>=1.25.0           # Pinned compatible version range
-pandas==2.2.3                   # Updated to newer stable version (2.0.3 is outdated)
-tqdm==4.66.1                    # Kept your specified version
-tenacity==9.0.0                 # Added version constraint
+requests==2.32.3                 # For synchronous HTTP requests (used in retry logic)
+httpx==0.27.0                    # For asynchronous HTTP requests
+numpy<1.26.0,>=1.25.0           # Numerical operations (often dependency of pandas/pyarrow)
+pandas==2.2.3                   # Data manipulation and analysis
+pandera==0.19.2                 # Data validation for pandas DataFrames
+tqdm==4.66.1                    # Progress bars
+tenacity==9.0.0                 # Retry logic for network requests
+python-dotenv==1.0.0            # Loading environment variables from .env file
+aiolimiter==1.1.0               # Async rate limiting
 
-# SEC Processing
-sec-api==1.0.31                 # Corrected version (2.6.1 doesn't exist)
-beautifulsoup4==4.12.3          # Modern HTML parser version
-lxml==5.2.2                     # XML processing library
+# SEC Processing & HTML/XML Parsing
+sec-api==1.0.31                 # For interacting with the sec-api.io service
+beautifulsoup4==4.12.3          # HTML parsing (scraping fallback)
+lxml==5.2.2                     # XML/HTML processing (often used by beautifulsoup4/unstructured)
 
 # Document Processing
-unstructured==0.10.8            # Your specified version
-python-magic-bin==0.4.14        # Required for file type detection
-python-dotenv==1.0.0            # Environment variable management
+unstructured==0.10.8            # Partitioning HTML and other documents
+python-magic-bin==0.4.14        # File type detection (likely dependency for unstructured)
+pyarrow==16.1.0                 # Efficient columnar storage (Parquet support)
 
-transformers==4.41.2          # Hugging Face models
-torch==2.2.2                  # PyTorch dependency
+# Transformers / ML (Optional but included in script)
+transformers==4.41.2            # Hugging Face models (for FinBERT)
+torch==2.2.2                    # PyTorch dependency for Transformers
+
+# Utilities & Visualization
+tabulate==0.9.0                 # Needed for table formatting (implied by previous errors)
+matplotlib==3.9.0               # For creating plots (optional analysis step)
