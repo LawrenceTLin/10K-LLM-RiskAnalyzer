@@ -84,7 +84,6 @@ sec-risk-quant/
 | Infrastructure | `docker`, AWS S3 (optional) | Containerization, Cloud Storage |
 | Core Utils | `python-dotenv`, `tenacity`, `tqdm`, `pyyaml` | Config, retries, progress |
 
-*(Grouped tools by category)*
 
 ## Dependencies
 
@@ -100,7 +99,6 @@ Key packages listed in `requirements.txt`. Includes `pandas`, `pyarrow`, `scikit
 
 ## References
 
-*(Keep relevant references)*
 - "A Scalable Data-Driven Framework for Systematic Analysis of SEC 10-K Filings Using Large Language Models" (Daimi & Iqbal, 2024)
 - "Enhancing Financial Sentiment Analysis via Retrieval Augmented Large Language Models" (Zhang et al., 2023)
 - Relevant papers on text-based factors, volatility forecasting, alpha decay, and transaction cost analysis.
