@@ -833,14 +833,16 @@ async def process_multiple_companies(tickers: List[str], start_year: int, end_ye
 async def main():
     """Main async execution function"""
     companies = [
-        # {"ticker": "AAPL", "name": "Apple Inc."},
-        # {"ticker": "MSFT", "name": "Microsoft Corporation"},
-        # {"ticker": "GOOGL", "name": "Alphabet Inc."},
-        {"ticker": "AMZN", "name": "Amazon.com, Inc."},
-        # {"ticker": "META", "name": "Meta Platforms, Inc."}
+        {"ticker": "NVDA", "name": "NVIDIA Corporation"},
+        {"ticker": "MSFT", "name": "Microsoft Corporation"},
+        {"ticker": "META", "name": "Meta Platforms, Inc."},
+        {"ticker": "TGT",  "name": "Target Corporation"},
+        {"ticker": "JPM",  "name": "JPMorgan Chase & Co."},
+        {"ticker": "SCHW", "name": "Charles Schwab Corporation"},
+        {"ticker": "XOM",  "name": "Exxon Mobil Corporation"},
     ]
     tickers = [c["ticker"] for c in companies]
-    start_year = 2022; end_year = 2023; max_concurrent = 3 # Adjust as needed
+    start_year = 2021; end_year = 2023; max_concurrent = 3 # Adjust as needed
 
     logger.info(f"Starting SEC extraction for tickers: {tickers}, years: {start_year}-{end_year}")
     results = await process_multiple_companies(tickers, start_year, end_year, max_concurrent)
