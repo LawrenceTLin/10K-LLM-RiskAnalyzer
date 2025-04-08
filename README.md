@@ -32,34 +32,36 @@ This project implements an end-to-end pipeline to:
 *   **RAG for Context (Current Scope)**: Implements Retrieval-Augmented Generation primarily for *retrieving* similar historical risk disclosures to provide context during analysis, rather than large-scale fine-tuning for classification in the initial phase due to data constraints. *(Self-Correction: Fine-tuning large models like Llama-3/BloombergGPT requires substantial data beyond the initial scope; this is deferred.)*
 
 ## Project Architecture
-sec-risk-quant/ # Renamed for clarity
-├── data/
-│ ├── raw/
-│ │ └── sec_filings/ # Raw 10-K text/HTML via API
-│ ├── processed/
-│ │ └── sec_filings/ # Sentence-level data, embeddings, sentiment (Parquet)
-│ ├── features/ # Aggregated filing-level features (Parquet)
-│ └── lobster/ # LOBSTER sample data (if used locally)
-├── models/
-│ ├── bertopic/ # Saved BERTopic models
-│ └── lightgbm/ # Trained LightGBM models & SHAP explainers
-├── notebooks/ # Exploratory analysis, visualization
-│ ├── 1_Data_Exploration.ipynb
-│ ├── 2_NLP_Feature_Analysis.ipynb
-│ ├── 3_Model_Training_Validation.ipynb
-│ └── 4_Backtest_Analysis.ipynb
-├── scripts/
-│ ├── sec_ingestion.py # sec-api.io interaction, text processing
-│ ├── feature_engineer_nlp.py # Embedding, Topic Modeling, Novelty, Aggregation
-│ ├── train_predictive_model.py # LightGBM training and prediction pipeline
-│ ├── backtest_strategy.py # Backtrader/vectorized backtesting logic
-│ └── deploy_api.py # Optional: FastAPI endpoint structure
+sec-risk-quant/
 ├── config/
-│ └── parameters.yml # Model/backtest parameters, file paths
-└── docker/ # Optional: Docker setup for API/MLflow
-└── Dockerfile
-
-*(Adjusted directory names for clarity)*
+│   └── parameters.yml             # Model/backtest parameters, file paths
+├── data/
+│   ├── features/                  # Aggregated filing-level features (Parquet)
+│   ├── lobster/                   # LOBSTER sample data (if used locally)
+│   ├── processed/
+│   │   └── sec_filings/           # Sentence-level data, embeddings, sentiment (Parquet)
+│   └── raw/
+│       └── sec_filings/           # Raw 10-K text/HTML via API
+├── docker/                        # Optional: Docker setup for API/MLflow
+│   └── Dockerfile
+├── models/
+│   ├── bertopic/                  # Saved BERTopic models
+│   └── lightgbm/                  # Trained LightGBM models & SHAP explainers
+├── notebooks/                     # Exploratory analysis, visualization
+│   ├── 1_Data_Exploration.ipynb
+│   ├── 2_NLP_Feature_Analysis.ipynb
+│   ├── 3_Model_Training_Validation.ipynb
+│   └── 4_Backtest_Analysis.ipynb
+├── scripts/
+│   ├── sec_ingestion.py           # sec-api.io interaction, text processing
+│   ├── feature_engineer_nlp.py    # Embedding, Topic Modeling, Novelty, Aggregation
+│   ├── train_predictive_model.py  # LightGBM training and prediction pipeline
+│   ├── backtest_strategy.py       # Backtrader/vectorized backtesting logic
+│   └── deploy_api.py              # Optional: FastAPI endpoint structure
+├── .env.example                   # Example environment variables
+├── .gitignore                     # Files/directories ignored by Git
+├── README.md                      # This file
+└── requirements.txt               # Project dependencies
 
 ## Tools & Technology Stack
 
