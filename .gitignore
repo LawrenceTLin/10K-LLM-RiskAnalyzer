@@ -26,6 +26,7 @@ logs/
 # Data files that might contain sensitive information
 data/raw/
 data/processed/
+data/analysis/risk_factors/
 
 # IDE specific files
 .idea/
