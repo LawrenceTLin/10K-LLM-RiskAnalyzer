@@ -889,7 +889,7 @@ async def main():
         {"ticker": "XOM",  "name": "Exxon Mobil Corporation"},
     ]
     tickers = [c["ticker"] for c in companies]
-    start_year = 2021; end_year = 2023; max_concurrent = 3 # Adjust as needed
+    start_year = 2015; end_year = 2018; max_concurrent = 3 # Adjust as needed
 
     logger.info(f"Starting SEC extraction for tickers: {tickers}, years: {start_year}-{end_year}")
     results = await process_multiple_companies(tickers, start_year, end_year, max_concurrent)
