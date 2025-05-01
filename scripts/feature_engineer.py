@@ -22,6 +22,13 @@ import numpy as np
 # import yaml # For loading config if needed
 from typing import List, Dict, Optional, Tuple, Any # Added typing
 
+# Add joblib import near the top with other imports
+try:
+    from joblib import Memory
+except ImportError:
+    Memory = None
+    print("WARNING: joblib not found. Embedding caching will be disabled.")
+
 # --- NLP Libraries (Import conditionally or ensure installed) ---
 # Ensure these are in requirements.txt: sentence-transformers, bertopic, umap-learn, hdbscan, scikit-learn
 NLP_LIBRARIES_AVAILABLE = True
@@ -58,6 +65,15 @@ except NameError:
      BASE_DIR = Path(".") # Fallback for interactive use
 
 PROCESSED_DIR = BASE_DIR / "data" / "processed" / "sec_filings"
+# Define a cache location (can be configured)
+CACHE_DIR = BASE_DIR / ".cache" / "embeddings"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Initialize joblib Memory for caching
+# location=None disables caching if joblib is not installed or cache_dir is None
+memory = None
+if Memory and CACHE_DIR:
+    memory = Memory(location=str(CACHE_DIR), verbose=0) # Set verbose > 0 for cache logs
 FEATURES_DIR = BASE_DIR / "data" / "features"
 MODELS_DIR = BASE_DIR / "models"
 BERTOPIC_MODELS_DIR = MODELS_DIR / "bertopic"
@@ -94,25 +110,35 @@ BERTOPIC_CALCULATE_PROBABILITIES = False # Set True if needed for downstream tas
 
 def load_processed_data(ticker: str, years: List[int], data_dir: Path) -> Optional[pd.DataFrame]:
     """Loads and concatenates processed parquet files for a ticker and years."""
-    # Future Work: Add error handling for reading potentially corrupt Parquet files.
-    # Future Work: Select only necessary columns during load to save memory.
     all_dfs = []
+    # Define essential columns needed for processing and aggregation
+    # Add any other columns from the parquet file that are needed downstream
+    essential_cols = ['ticker', 'year', 'paragraph_idx', 'sentence_idx', 'sentence',
+                      'sentiment_score', 'word_count', 'contains_risk', 'contains_uncertainty'] # Added potential needed cols
+
     logger.info(f"Loading processed data for {ticker}, years {min(years)}-{max(years)}...")
     for year in years:
         file_path = data_dir / ticker / f"{ticker}_{year}_risk.parquet"
         if file_path.exists():
             try:
-                df_year = pd.read_parquet(file_path)
-                # Validate essential columns
-                essential_cols = ['ticker', 'year', 'paragraph_idx', 'sentence_idx', 'sentence']
+                # Select only necessary columns during load to save memory
+                df_year = pd.read_parquet(file_path, columns=essential_cols)
+
+                # Basic validation after load (optional if columns arg is reliable, but good practice)
                 if not all(col in df_year.columns for col in essential_cols):
-                     logger.warning(f"File {file_path} missing essential columns {essential_cols}. Skipping.")
+                     logger.warning(f"File {file_path} loaded but missing essential columns after selection. Expected: {essential_cols}. Got: {df_year.columns.tolist()}. Skipping.")
                      continue
+
+                # Ensure correct types and standardize ticker
                 df_year['year'] = df_year['year'].astype(int)
-                df_year['ticker'] = ticker # Standardize ticker column
+                df_year['ticker'] = ticker
                 all_dfs.append(df_year)
-            except Exception as e:
-                logger.error(f"Failed to load or process {file_path}: {e}")
+            except (IOError, ValueError, Exception) as e: # Catch specific IO/Format errors + general exceptions
+                # Add more specific exceptions if known (e.g., from pyarrow: pyarrow.lib.ArrowIOError, pyarrow.lib.ArrowInvalid)
+                logger.error(f"Failed to load or process {file_path} (potentially corrupt or wrong format): {e}", exc_info=True)
+            except KeyError as e:
+                 logger.error(f"Failed to load {file_path}: Missing expected column during read: {e}. Ensure '{str(e)}' is in the Parquet file or remove from 'essential_cols'.", exc_info=True)
+
         else:
             logger.warning(f"Processed file not found: {file_path}")
 
@@ -126,31 +152,107 @@ def load_processed_data(ticker: str, years: List[int], data_dir: Path) -> Option
     logger.info(f"Loaded {len(combined_df)} sentences for {ticker}.")
     return combined_df
 
+# --- Helper function for caching ---
+# We wrap the core logic in a separate function decorated by @memory.cache
+# This ensures that the caching mechanism works correctly with potentially large inputs/outputs.
+def _encode_sentences_cached(sentences: Tuple[str], model_name: str, batch_size: int, device: str) -> Optional[np.ndarray]:
+    """Internal helper to generate embeddings, potentially cached."""
+    # Note: Input 'sentences' is converted to tuple for hashability by joblib
+    if not NLP_LIBRARIES_AVAILABLE or not SentenceTransformer:
+        logger.error("sentence-transformers library not available.")
+        return None
+    try:
+        logger.info(f"Loading sentence embedding model: {model_name} onto device: {device}...")
+        # Model loading itself isn't cached here, but the encoding is.
+        # Consider caching the model loading if it's very slow and models are reused frequently across runs.
+        model = SentenceTransformer(model_name, device=device)
+        logger.info(f"Generating {len(sentences)} embeddings (batch size: {batch_size})...")
+        # The actual computation happens here and is cached based on inputs
+        embeddings = model.encode(list(sentences), show_progress_bar=True, batch_size=batch_size, device=device)
+        logger.info(f"Generated embeddings shape: {embeddings.shape}")
 
-def generate_embeddings(sentences: List[str], model_name: str, batch_size: int = 64, device: str = 'cpu') -> Optional[np.ndarray]:
-    """Generates sentence embeddings using SentenceTransformer."""
-    # Future Work: Implement caching mechanism (e.g., using joblib or hashing) to avoid re-generating embeddings for unchanged sentences/files.
+        if not isinstance(embeddings, np.ndarray):
+             logger.error(f"Embedding generation returned unexpected type: {type(embeddings)}")
+             return None
+        if embeddings.size == 0:
+             logger.warning("Embedding generation resulted in an empty array.")
+             # Return empty array of correct shape if needed downstream, or None
+             return np.array([], dtype=np.float32).reshape(0, model.get_sentence_embedding_dimension())
+        if np.all(embeddings == 0):
+             logger.warning("Embedding generation resulted in an all-zero array.")
+             # Decide if this is an error or valid case
+
+        return embeddings.astype(np.float32) # Ensure consistent type
+    except ImportError:
+         logger.error("sentence-transformers library is required but not installed.")
+         return None
+    except Exception as e:
+        logger.error(f"Failed to generate embeddings: {e}", exc_info=True)
+        return None
+
+# --- Main function using the cached helper ---
+def generate_embeddings(sentences: List[str], model_name: str, batch_size: int = 64, device: str = 'cpu', use_cache: bool = True) -> Optional[np.ndarray]:
+    """
+    Generates sentence embeddings using SentenceTransformer, with optional caching.
+
+    Args:
+        sentences: A list of sentences to embed.
+        model_name: The name of the SentenceTransformer model to use.
+        batch_size: The batch size for encoding.
+        device: The device to run the model on ('cpu', 'cuda').
+        use_cache: If True, attempts to use disk caching via joblib.
+
+    Returns:
+        A numpy array of embeddings (float32), or None if an error occurs.
+        Returns an empty array if the input list is empty.
+    """
     # Future Work: Explore fine-tuning the embedding model on financial text corpus for potentially better domain adaptation.
     if not NLP_LIBRARIES_AVAILABLE or not SentenceTransformer:
         logger.error("sentence-transformers library not available.")
         return None
     if not sentences:
         logger.warning("No sentences provided for embedding generation.")
-        return np.array([])
-
-    try:
-        logger.info(f"Loading sentence embedding model: {model_name} onto device: {device}...")
-        model = SentenceTransformer(model_name, device=device)
-        logger.info(f"Generating {len(sentences)} embeddings (batch size: {batch_size})...")
-        embeddings = model.encode(sentences, show_progress_bar=True, batch_size=batch_size, device=device)
-        logger.info(f"Generated embeddings shape: {embeddings.shape}")
-        if embeddings.size == 0 or np.all(embeddings == 0):
-             logger.warning("Embedding generation resulted in empty or all-zero array.")
-             return None
-        return embeddings.astype(np.float32) # Ensure consistent type (float32 often sufficient)
-    except Exception as e:
-        logger.error(f"Failed to generate embeddings: {e}", exc_info=True)
+        # Return an empty array with 0 rows but potentially infer shape if model loaded?
+        # For simplicity, returning a 1D empty array. Adjust if a specific shape is needed.
+        return np.array([], dtype=np.float32)
+    if not isinstance(sentences, list) or not all(isinstance(s, str) for s in sentences):
+        logger.error("Input 'sentences' must be a list of strings.")
         return None
+
+    # Use the cached function if caching is enabled and available
+    if use_cache and memory:
+        logger.info("Attempting to generate embeddings using cache...")
+        try:
+            # Convert list to tuple for hashing needed by joblib
+            # Pass other relevant parameters that affect the output
+            embeddings = memory.cache(_encode_sentences_cached)(
+                sentences=tuple(sentences),
+                model_name=model_name,
+                batch_size=batch_size,
+                device=device # Caching depends on device too, as results might differ slightly (though unlikely for SBERT)
+            )
+            if embeddings is None: # Check if the cached function itself returned None (error)
+                 logger.error("Embedding generation failed (retrieved None from cache or execution).")
+                 return None
+            # Check if cache lookup was successful (joblib doesn't directly tell us easily here)
+            # We rely on the logger inside _encode_sentences_cached for generation info
+            logger.info("Embeddings retrieved/generated via cached function.")
+            return embeddings
+        except Exception as e:
+            logger.error(f"Error during cached embedding generation: {e}", exc_info=True)
+            logger.warning("Falling back to non-cached generation.")
+            # Fall through to non-cached execution if caching fails unexpectedly
+
+    # Fallback or non-cached execution
+    logger.info("Generating embeddings without caching...")
+    # Convert list to tuple just to call the same internal function
+    # Or duplicate the logic if preferred
+    embeddings = _encode_sentences_cached(tuple(sentences), model_name, batch_size, device)
+    if embeddings is None:
+         logger.error("Embedding generation failed (non-cached).")
+         return None
+
+    return embeddings
 
 
 def run_bertopic_clustering(docs: List[str], embeddings: np.ndarray, model_save_dir: Path) -> Tuple[Optional[Any], Optional[np.ndarray]]:
