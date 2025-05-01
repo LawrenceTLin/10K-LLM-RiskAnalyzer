@@ -1,9 +1,57 @@
 #!/usr/bin/env python3
 """
-SEC 10-K Risk Factor Extractor (API-Focused)
+Overview:
+This script automates the retrieval, extraction, NLP processing (sentiment, keywords),
+and analysis of "Item 1A: Risk Factors" from SEC 10-K filings for specified companies
+and years, primarily leveraging the sec-api.io service and storing results locally.
 
-Relies on sec-api.io Query and Extractor APIs to retrieve risk factors.
-Includes minimal scraping only to find the document URL from the index page.
+SEC 10-K Risk Factor Ingestion and Processing Pipeline
+
+This script orchestrates the process of fetching, extracting, processing, and
+analyzing "Item 1A: Risk Factors" from SEC 10-K filings for specified companies
+and years.
+
+Core Functionality:
+1.  **Filing Discovery:**
+    - Primarily uses the `sec-api.io` Query API to find relevant 10-K filings
+      based on ticker symbol and year.
+    - Falls back to scraping the SEC EDGAR search results page if the Query API
+      is unavailable, fails, or the API key is not provided.
+2.  **Risk Factor Extraction:**
+    - Primarily uses the `sec-api.io` Extractor API (via direct HTTP GET calls)
+      to extract the text content of "Item 1A: Risk Factors" from the filing's
+      HTML document URL. This is the preferred method.
+    - Includes robust retry logic for transient network errors when calling the
+      Extractor API.
+    - Minimal scraping is performed only to parse the filing's index page (`*-index.htm`)
+      to locate the primary document URL needed for the Extractor API.
+3.  **Text Processing & NLP Enrichment:**
+    - Cleans the extracted text.
+    - Splits the text into paragraphs and sentences.
+    - Applies NLP using Hugging Face Transformers (specifically `ProsusAI/finbert`
+      by default) to calculate sentiment scores for each sentence.
+    - Identifies potential risk-related keywords within sentences.
+4.  **Data Structuring & Validation:**
+    - Organizes the processed sentences into a pandas DataFrame.
+    - Validates the DataFrame structure and data types using Pandera schemas.
+5.  **Data Storage:**
+    - Saves the raw extracted text to `.txt` files.
+    - Saves the processed and enriched DataFrame to `.parquet` files using PyArrow
+      for efficient storage and querying, partitioned by ticker and year.
+6.  **Analysis (Optional):**
+    - Aggregates data across multiple years for a single company.
+    - Calculates summary statistics (e.g., sentence counts, sentiment trends,
+      keyword frequencies, year-over-year changes).
+    - Saves analysis results to CSV, Parquet, and JSON files.
+    - Generates basic trend plots (if Matplotlib is installed).
+7.  **Asynchronous Operations:**
+    - Leverages `asyncio` and `httpx` for concurrent fetching of filing data and
+      API calls, improving performance when processing multiple filings.
+    - Uses `aiolimiter` for rate limiting asynchronous requests.
+
+Configuration:
+- Requires a `SEC_API_KEY` environment variable (usually in a `.env` file) to
+  use the `sec-api.io` services.
 """
 
 import os
