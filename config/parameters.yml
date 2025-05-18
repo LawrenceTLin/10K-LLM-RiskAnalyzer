@@ -1,0 +1,140 @@
+# config/parameters.yml
+
+# --- Global Project Settings ---
+project_name: "SEC_Risk_Factor_Quantitative_Framework"
+# Base directory can often be inferred by scripts, but can be defined if needed
+# project_base_dir: "/path/to/your/project" # Example, usually not needed if scripts use Path(__file__)
+
+# --- Shared Parameters ---
+# List of companies to process. This should be the single source of truth for all scripts.
+companies_to_process:
+  - ticker: "NVDA"
+    name: "NVIDIA Corporation"
+    # Add other relevant info if needed, e.g., CIK (though sec_ingestion can fetch it)
+  - ticker: "MSFT"
+    name: "Microsoft Corporation"
+  - ticker: "META"
+    name: "Meta Platforms, Inc."
+  - ticker: "TGT"
+    name: "Target Corporation"
+  - ticker: "JPM"
+    name: "JPMorgan Chase & Co."
+  - ticker: "SCHW"
+    name: "Charles Schwab Corporation"
+  - ticker: "XOM"
+    name: "Exxon Mobil Corporation"
+  # Add other companies as needed
+
+# Date ranges - define broadly, scripts can select specific sub-ranges
+date_config:
+  # For market data fetching
+  market_data_start_date: "2008-01-01"
+  market_data_end_date: "today" # Special value, scripts can interpret as current date
+
+  # For SEC filing fetching (used by sec_ingestion.py)
+  filing_start_year: 2010
+  filing_end_year: 2024 # Or a dynamic way to set current year
+
+# --- Data Paths ---
+# These can be relative to the project_base_dir or absolute.
+# Using relative paths is often more portable. Scripts will need to join with BASE_DIR.
+paths:
+  base_data_dir: "data" # Base for all data
+  raw_data_dir: "data/raw"
+  processed_data_dir: "data/processed"
+  features_dir: "data/features"
+  models_dir: "models"
+  analysis_dir: "data/analysis"
+  log_dir: "logs" # Central directory for logs from all scripts
+
+  # Specific sub-paths if needed, e.g., for market_data_integration.py output
+  # master_dataset_dir: "data/features/master"
+
+# --- sec_ingestion.py Specific Parameters ---
+sec_ingestion:
+  # SEC_API_KEY should ideally be loaded from .env, but can be referenced here if needed
+  # sec_api_key_env_var: "SEC_API_KEY"
+  user_agent: "Your Name/Company YourEmail@example.com" # IMPORTANT: Update this
+  max_api_calls_sec_api_io: 100 # Example limit for sec-api.io
+  requests_per_second_async: 5  # Rate limit for async HTTP requests
+  filing_type: "10-K"
+  item_to_extract: "1A" # e.g., "1A" for Risk Factors, "7" for MD&A
+  nlp_model_name_sentiment: "ProsusAI/finbert"
+  # Add other sec_ingestion specific params like retry attempts, timeouts, etc.
+
+# --- feature_engineer_nlp.py Specific Parameters ---
+feature_engineer_nlp:
+  sentence_embedding_model: "all-MiniLM-L6-v2"
+  embedding_batch_size: 128
+  embedding_device: "auto" # Script can detect 'cuda' or 'cpu'
+  embedding_cache_dir: ".cache/embeddings" # Relative to project root
+
+  bertopic:
+    nr_topics: "auto" # Or a specific number
+    min_topic_size: 15
+    calculate_probabilities: false
+    umap_n_neighbors: 15
+    umap_n_components: 5
+    umap_min_dist: 0.0
+    hdbscan_min_cluster_size: 15 # Can be same as min_topic_size or different
+    # Add other BERTopic related params like custom vectorizer settings if used
+
+  # Section of the filing to process (e.g., _risk for Item 1A, _mda for Item 7)
+  # This would influence which parquet files are read from data/processed/sec_filings/TICKER/
+  filing_section_suffix: "_risk" # Example for risk factors
+
+# --- source_market_data.py Specific Parameters ---
+source_market_data:
+  benchmark_ticker: "^GSPC"  # S&P 500 Index
+  risk_free_rate_ticker: "^IRX" # 13 Week Treasury Bill via yfinance
+  # Optional: Specify source for Fama-French (e.g., 'ken_french_website', 'pandas_datareader')
+  # fama_french_source: "pandas_datareader"
+  # fama_french_factors_set: "F-F_Research_Data_5_Factors_2x3_daily" # Example dataset name
+
+# --- market_data_integration.py (Future Script) Specific Parameters ---
+market_data_integration:
+  # Defines the forward window for calculating target variables like volatility or returns
+  forward_window_days_volatility: 30 # Trading days
+  forward_window_days_returns: 30  # Trading days
+
+  # Lookback windows for historical market features
+  historical_volatility_window_days: [30, 60, 90] # List of windows
+  historical_beta_window_days: 252 # Approx 1 year of trading days
+  momentum_windows_days: [21, 63, 126, 252] # Approx 1m, 3m, 6m, 12m
+
+  # Factor model for alpha calculation
+  # factor_model: "CAPM" # or "FamaFrench3", "FamaFrench5"
+
+# --- train_predictive_model.py (Future Script) Specific Parameters ---
+train_predictive_model:
+  model_type: "LightGBM" # e.g., "LightGBM", "RandomForest", "XGBoost"
+  target_variable_to_predict: "forward_volatility_30d" # Or "residual_alpha_30d"
+
+  walk_forward_validation:
+    initial_train_window_years: 5
+    test_window_years: 1
+    step_size_years: 1 # How often to retrain/slide window
+    refit_frequency: "annual" # Or "per_step"
+
+  # Placeholder for model-specific hyperparameters (these would be nested)
+  # lightgbm_params:
+  #   n_estimators: 100
+  #   learning_rate: 0.05
+  #   num_leaves: 31
+  #   # ... other LGBM params
+
+  # Feature selection settings
+  # top_n_features_to_select: 50
+
+# --- backtest_strategy.py (Future Script) Specific Parameters ---
+backtest_strategy:
+  strategy_type: "volatility_quintile_long_short" # Or "alpha_quintile_long_short"
+  portfolio_rebalancing_frequency: "monthly" # "quarterly", "annually"
+  transaction_cost_bps: 5 # Basis points (0.05%)
+  slippage_model: "fixed_bps" # Or "volume_based"
+  target_sharpe_ratio_post_cost: 1.0
+
+# --- MLflow Settings (Optional, if using MLflow for experiment tracking) ---
+mlflow_tracking:
+  server_uri: "" # Leave empty for local tracking, or set to a remote server URI
+  experiment_name_prefix: "SEC_Risk_Factors_"
