@@ -134,6 +134,10 @@ BERTOPIC_NR_TOPICS = "auto"
 BERTOPIC_MIN_TOPIC_SIZE = 15
 BERTOPIC_CALCULATE_PROBABILITIES = False # Set True if needed for downstream tasks, but slower.
 # Future Work: Explore dynamic topic modeling (DTM) within BERTopic to track topic evolution over time explicitly.
+
+TOPIC_ID_OUTLIER = -1
+TOPIC_ID_ERROR_OR_UNPROCESSED = -2
+
 # --- End Configuration ---
 
 
@@ -458,7 +462,7 @@ def aggregate_features_to_filing(df: pd.DataFrame) -> Optional[pd.DataFrame]:
             agg_funcs['novelty_score'] = ['mean', 'std', 'max', lambda x: (x > 0.5).mean() if pd.notna(x).any() else 0.0]
         if 'topic_id' in available_cols:
              # Aggregate only non-error/-outlier topics for nunique? Or include -1?
-             agg_funcs['topic_id'] = [lambda x: x[x != -1 & x != -2].nunique()]
+             agg_funcs['topic_id'] = [lambda x: x[(x != TOPIC_ID_OUTLIER) & (x != TOPIC_ID_ERROR_OR_UNPROCESSED)].nunique()]
 
         # Perform initial aggregation
         aggregated_df = df.groupby(['ticker', 'year']).agg(agg_funcs).copy()
@@ -494,14 +498,14 @@ def aggregate_features_to_filing(df: pd.DataFrame) -> Optional[pd.DataFrame]:
              if col in aggregated_df.columns: aggregated_df[col] = (aggregated_df[col] * 100).round(2)
 
         # --- Add Topic Distribution Features ---
-        if 'topic_id' in df.columns and (df['topic_id'] != -2).any(): # Check topics were generated
+        if 'topic_id' in df.columns and (df['topic_id'] != TOPIC_ID_ERROR_OR_UNPROCESSED).any(): # Check topics were generated
             logger.info("Calculating topic distributions...")
             # Normalize topic counts to get proportions
             topic_proportions = pd.crosstab(index=[df['ticker'], df['year']],
                                             columns=df['topic_id'],
                                             normalize='index')
             # Rename columns
-            topic_proportions.columns = [f"topic_{'outlier' if col == -1 else col}_prop" for col in topic_proportions.columns]
+            topic_proportions.columns = [f"topic_{'outlier' if col == TOPIC_ID_OUTLIER else ('unprocessed' if col == TOPIC_ID_ERROR_OR_UNPROCESSED else col)}_prop" for col in topic_proportions.columns]
             # Multiply by 100 and round
             topic_proportions = (topic_proportions * 100).round(2)
             # Merge topic proportions
@@ -563,7 +567,7 @@ def main():
     # Future Work: Add option to load pre-saved embeddings here.
     if embeddings is None:
         logger.error("Embedding generation failed. Subsequent steps requiring embeddings will be skipped.")
-        master_df['topic_id'] = -2; master_df['novelty_score'] = np.nan
+        master_df['topic_id'] = TOPIC_ID_ERROR_OR_UNPROCESSED; master_df['novelty_score'] = np.nan
     else: logger.info("Embeddings generated successfully.")
 
     # --- Step 3: Calculate Novelty ---
@@ -590,12 +594,12 @@ def main():
 
     # --- Step 4: Run BERTopic Clustering ---
     logger.info("Step 4: Running BERTopic clustering...")
-    master_df['topic_id'] = -2 # Default state
+    master_df['topic_id'] = TOPIC_ID_ERROR_OR_UNPROCESSED # Default state
     topic_model = None
     if embeddings is not None:
         topic_model, topics = run_bertopic_clustering(sentences_list, embeddings, BERTOPIC_MODELS_DIR)
         if topics is not None: master_df['topic_id'] = topics; logger.info("Added topic IDs to DataFrame.")
-        else: logger.warning("BERTopic clustering failed. topic_id set to -2.")
+        else: logger.warning(f"BERTopic clustering failed. topic_id set to {TOPIC_ID_ERROR_OR_UNPROCESSED}.")
     else: logger.warning("Skipping BERTopic clustering (no embeddings).")
 
     # --- Step 5: Aggregate Features ---

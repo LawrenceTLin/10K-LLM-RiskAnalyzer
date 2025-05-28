@@ -76,6 +76,13 @@ import asyncio
 import httpx
 from aiolimiter import AsyncLimiter
 
+# --- YAML Configuration Import ---
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+
 # --- Conditional Import for QueryApi ---
 try:
     from sec_api import QueryApi
@@ -121,10 +128,11 @@ except ImportError:
 load_dotenv()
 SEC_API_KEY = os.getenv("SEC_API_KEY")
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-RAW_DATA_DIR = BASE_DIR / "data" / "raw" / "sec_filings"
-PROCESSED_DATA_DIR = BASE_DIR / "data" / "processed" / "sec_filings"
-ANALYSIS_DIR = BASE_DIR / "data" / "analysis" / "risk_factors"
+PROJECT_ROOT_DIR = Path(__file__).resolve().parent.parent # Assuming scripts is one level down from project root
+CONFIG_FILE_PATH = PROJECT_ROOT_DIR / "config" / "parameters.yml"
+RAW_DATA_DIR = PROJECT_ROOT_DIR / "data" / "raw" / "sec_filings"
+PROCESSED_DATA_DIR = PROJECT_ROOT_DIR / "data" / "processed" / "sec_filings"
+ANALYSIS_DIR = PROJECT_ROOT_DIR / "data" / "analysis" / "risk_factors"
 
 for dir_path in [RAW_DATA_DIR, PROCESSED_DATA_DIR, ANALYSIS_DIR]:
     dir_path.mkdir(parents=True, exist_ok=True)
@@ -160,6 +168,31 @@ arrow_schema = pa_schema([
     ("sentiment_score", pa.float32()), ("risk_keywords", pa.list_(pa.string()))
 ])
 # --- End Schemas ---
+
+# --- Configuration Loading Function ---
+def load_config(config_path: Path) -> Optional[Dict]:
+    """Loads the YAML configuration file."""
+    if not YAML_AVAILABLE:
+        logger.error("PyYAML library is not installed. Cannot load YAML configuration.")
+        return None
+    if not config_path.exists():
+        logger.error(f"Configuration file not found: {config_path}")
+        return None
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        logger.info(f"Successfully loaded configuration from {config_path}")
+        return config
+    except yaml.YAMLError as e:
+        logger.error(f"Error parsing YAML configuration file {config_path}: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while loading configuration {config_path}: {e}")
+        return None
+
+# Load configuration globally or pass it around
+CONFIG = load_config(CONFIG_FILE_PATH)
+# --- End Configuration Loading ---
 
 
 # =============================================================================
@@ -927,17 +960,29 @@ async def process_multiple_companies(tickers: List[str], start_year: int, end_ye
 
 async def main():
     """Main async execution function"""
-    companies = [
-        {"ticker": "NVDA", "name": "NVIDIA Corporation"},
-        {"ticker": "MSFT", "name": "Microsoft Corporation"},
-        {"ticker": "META", "name": "Meta Platforms, Inc."},
-        {"ticker": "TGT",  "name": "Target Corporation"},
-        {"ticker": "JPM",  "name": "JPMorgan Chase & Co."},
-        {"ticker": "SCHW", "name": "Charles Schwab Corporation"},
-        {"ticker": "XOM",  "name": "Exxon Mobil Corporation"},
-    ]
-    tickers = [c["ticker"] for c in companies]
-    start_year = 2015; end_year = 2018; max_concurrent = 3 # Adjust as needed
+    if CONFIG is None:
+        logger.error("Configuration not loaded. Exiting.")
+        # Fallback to hardcoded tickers if config loading fails and you want to allow it
+        # companies_to_process_config = [
+        #     {"ticker": "NVDA", "name": "NVIDIA Corporation"},
+        #     {"ticker": "MSFT", "name": "Microsoft Corporation"}
+        # ]
+        # logger.warning("Using hardcoded fallback tickers due to configuration load failure.")
+        return
+
+    companies_to_process_config = CONFIG.get("companies_to_process")
+    if not companies_to_process_config or not isinstance(companies_to_process_config, list):
+        logger.error("`companies_to_process` not found or is not a list in the configuration file. Exiting.")
+        return
+
+    tickers = [company.get("ticker") for company in companies_to_process_config if company.get("ticker")]
+    if not tickers:
+        logger.error("No valid tickers found in the `companies_to_process` configuration. Exiting.")
+        return
+
+    start_year = CONFIG.get("date_config", {}).get("filing_start_year", 2015) # Default if not in config
+    end_year = CONFIG.get("date_config", {}).get("filing_end_year", datetime.now().year -1) # Default to last year
+    max_concurrent = CONFIG.get("sec_ingestion", {}).get("max_concurrent_companies", 3) # Example, add to YAML
 
     logger.info(f"Starting SEC extraction for tickers: {tickers}, years: {start_year}-{end_year}")
     results = await process_multiple_companies(tickers, start_year, end_year, max_concurrent)
@@ -945,7 +990,7 @@ async def main():
     # --- Save overall results summary ---
     results_path = PROCESSED_DATA_DIR / f"batch_results_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     # Basic cleaning for JSON (remove DataFrames from detailed results if they exist)
-    clean_summary_results = {}
+    clean_summary_results: Dict[str, Any] = {}
     for ticker, summary_data in results.items():
         clean_summary = summary_data.copy() # Copy top-level summary
         # If detailed results were nested (they aren't in process_company output, but were in process_years)

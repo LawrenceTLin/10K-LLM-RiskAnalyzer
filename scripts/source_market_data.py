@@ -43,7 +43,7 @@ import time
 from pathlib import Path
 import pandas as pd
 import yfinance as yf
-# import yaml # For loading config from parameters.yml in the future
+import yaml
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -64,42 +64,52 @@ try:
 except NameError:
     BASE_DIR = Path(".") # Fallback for interactive use/testing
 
-RAW_MARKET_DATA_DIR = BASE_DIR / "data" / "raw" / "market_data"
-DAILY_STOCK_DIR = RAW_MARKET_DATA_DIR / "daily_stock"
-BENCHMARK_DIR = RAW_MARKET_DATA_DIR / "benchmark"
-RISK_FREE_RATE_DIR = RAW_MARKET_DATA_DIR / "risk_free_rate"
-FACTORS_DIR = RAW_MARKET_DATA_DIR / "factors"
+# --- Load Configuration from parameters.yml ---
+CONFIG_FILE_PATH = BASE_DIR / "config" / "parameters.yml"
+try:
+    with open(CONFIG_FILE_PATH, 'r') as f:
+        config = yaml.safe_load(f)
+    logger.info(f"Successfully loaded configuration from {CONFIG_FILE_PATH}")
+except FileNotFoundError:
+    logger.error(f"Configuration file not found at {CONFIG_FILE_PATH}. Please ensure it exists.")
+    raise
+except Exception as e:
+    logger.error(f"Error loading or parsing configuration file {CONFIG_FILE_PATH}: {e}")
+    raise
+
+# --- Parameters from Config ---
+PROJECT_CONFIG = config.get('project_name', 'SEC_Risk_Factor_Quantitative_Framework')
+
+# Data Paths from config
+RAW_DATA_DIR_CONFIG = config.get('paths', {}).get('raw_data_dir', 'data/raw')
+RAW_MARKET_DATA_BASE_DIR = BASE_DIR / RAW_DATA_DIR_CONFIG / "market_data"
+
+DAILY_STOCK_DIR = RAW_MARKET_DATA_BASE_DIR / "daily_stock"
+BENCHMARK_DIR = RAW_MARKET_DATA_BASE_DIR / "benchmark"
+RISK_FREE_RATE_DIR = RAW_MARKET_DATA_BASE_DIR / "risk_free_rate"
+FACTORS_DIR = RAW_MARKET_DATA_BASE_DIR / "factors"
 
 # Create directories if they don't exist
 DAILY_STOCK_DIR.mkdir(parents=True, exist_ok=True)
 BENCHMARK_DIR.mkdir(parents=True, exist_ok=True)
 RISK_FREE_RATE_DIR.mkdir(parents=True, exist_ok=True)
 FACTORS_DIR.mkdir(parents=True, exist_ok=True)
+logger.info(f"Data will be saved in subdirectories of: {RAW_MARKET_DATA_BASE_DIR}")
 
-# --- Parameters (Future: Load from config/parameters.yml) ---
-# IMPORTANT: This list should be consistent with the companies processed by sec_ingestion.py.
-# The list provided in sec_ingestion.py was:
-# companies = [
-#     {"ticker": "NVDA", "name": "NVIDIA Corporation"},
-#     {"ticker": "MSFT", "name": "Microsoft Corporation"},
-#     {"ticker": "META", "name": "Meta Platforms, Inc."},
-#     {"ticker": "TGT",  "name": "Target Corporation"},
-#     {"ticker": "JPM",  "name": "JPMorgan Chase & Co."},
-#     {"ticker": "SCHW", "name": "Charles Schwab Corporation"},
-#     {"ticker": "XOM",  "name": "Exxon Mobil Corporation"},
-# ]
-# This `COMPANIES_TO_PROCESS` list should match the 'ticker' values from above.
-COMPANIES_TO_PROCESS = ["NVDA", "MSFT", "META", "TGT", "JPM", "SCHW", "XOM"]
+# Companies to process
+COMPANIES_TO_PROCESS_CONFIG = config.get('companies_to_process', [])
+COMPANIES_TO_PROCESS = [company['ticker'] for company in COMPANIES_TO_PROCESS_CONFIG if 'ticker' in company]
 
-# Define the overall period for which data might be needed.
-# This should be broad enough to cover filings and lookback/forward windows.
-START_DATE = "2008-01-01"
-END_DATE = pd.Timestamp.today().strftime('%Y-%m-%d') # Today's date
+# Date ranges
+DATE_CONFIG = config.get('date_config', {})
+START_DATE = DATE_CONFIG.get('market_data_start_date', "2008-01-01")
+END_DATE_CONFIG = DATE_CONFIG.get('market_data_end_date', "today")
+END_DATE = pd.Timestamp.today().strftime('%Y-%m-%d') if END_DATE_CONFIG == "today" else END_DATE_CONFIG
 
-# Market benchmark ticker
-BENCHMARK_TICKER = "^GSPC" # S&P 500 Index
-# Risk-free rate proxy
-RISK_FREE_TICKER = "^IRX" # 13 Week Treasury Bill
+# Market data specific parameters from source_market_data section
+SOURCE_MARKET_DATA_CONFIG = config.get('source_market_data', {})
+BENCHMARK_TICKER = SOURCE_MARKET_DATA_CONFIG.get('benchmark_ticker', "^GSPC")
+RISK_FREE_TICKER = SOURCE_MARKET_DATA_CONFIG.get('risk_free_rate_ticker', "^IRX")
 # --- End Configuration ---
 
 
@@ -276,16 +286,29 @@ def main():
     """
     start_time_main = time.time()
     logger.info("--- Starting Market Data Sourcing Pipeline ---")
+    logger.info(f"Project: {PROJECT_CONFIG}")
+    logger.info(f"Processing {len(COMPANIES_TO_PROCESS)} companies: {COMPANIES_TO_PROCESS}")
+    logger.info(f"Data period: {START_DATE} to {END_DATE}")
+    logger.info(f"Benchmark ticker: {BENCHMARK_TICKER}")
+    logger.info(f"Risk-free rate ticker: {RISK_FREE_TICKER}")
 
     # 1. Fetch Daily Stock Data
-    fetch_daily_stock_data(COMPANIES_TO_PROCESS, START_DATE, END_DATE, DAILY_STOCK_DIR)
+    if COMPANIES_TO_PROCESS:
+        fetch_daily_stock_data(COMPANIES_TO_PROCESS, START_DATE, END_DATE, DAILY_STOCK_DIR)
+    else:
+        logger.warning("No companies specified in 'companies_to_process' in the config. Skipping stock data fetching.")
 
     # 2. Fetch Market Benchmark Data
-    fetch_benchmark_data(BENCHMARK_TICKER, START_DATE, END_DATE, BENCHMARK_DIR)
+    if BENCHMARK_TICKER:
+        fetch_benchmark_data(BENCHMARK_TICKER, START_DATE, END_DATE, BENCHMARK_DIR)
+    else:
+        logger.warning("No benchmark_ticker specified. Skipping benchmark data fetching.")
 
     # 3. Fetch Risk-Free Rate Data
-    fetch_risk_free_rate_data(RISK_FREE_TICKER, START_DATE, END_DATE, RISK_FREE_RATE_DIR)
-
+    if RISK_FREE_TICKER:
+        fetch_risk_free_rate_data(RISK_FREE_TICKER, START_DATE, END_DATE, RISK_FREE_RATE_DIR)
+    else:
+        logger.warning("No risk_free_rate_ticker specified. Skipping risk-free rate data fetching.")
     # 4. Fetch Fama-French Factor Data (Optional)
     fetch_fama_french_factors(START_DATE, END_DATE, FACTORS_DIR)
 
